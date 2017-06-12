@@ -18,7 +18,7 @@ class i2c extends EventEmitter
       ).context.wire = @
       process.stdin.emit 'data', '' # trigger repl
 
-    process.on 'exit', => @close()
+    # process.on 'exit', => @close()
 
     @on 'data', (data) => 
       @history.push data
