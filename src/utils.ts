@@ -1,9 +1,16 @@
-export function fromCallback(fn: (cb) => void): Promise<any> {
+export interface FromCallbackOptions {
+  multiArgs?: boolean;
+}
+
+export function fromCallback(fn: (cb) => void, opts?: FromCallbackOptions): Promise<any> {
   return new Promise(function (resolve, reject) {
-    fn(function (err, ...args) {
-      if (err)
-        return reject(err);
-      args.length > 1 ? resolve(args) : resolve(args[0]);
+    fn(function (err, ...results) {
+      if (err) return reject(err);
+      if (opts && opts.multiArgs) {
+        resolve(results);
+      } else {
+        resolve(results[0]);
+      }
     });
-  })
+  });
 }

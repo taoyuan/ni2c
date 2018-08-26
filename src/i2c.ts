@@ -29,12 +29,14 @@ export class I2C {
     return fromCallback(cb => this.bus.scan(cb));
   }
 
-  async i2cRead(address: number, length: number, buffer: Buffer): Promise<[number, Buffer]> {
-    return fromCallback(cb => this.bus.i2cRead(address, length, buffer, cb));
+  async i2cRead(address: number, length: number, buffer: Buffer): Promise<{bytesRead: number, buffer: Buffer}> {
+    const [bytesRead, buf] = await fromCallback(cb => this.bus.i2cRead(address, length, buffer, cb), {multiArgs: true});
+    return {bytesRead, buffer: buf};
   }
 
-  async i2cWrite(address: number, length: number, buffer: Buffer): Promise<[number, Buffer]> {
-    return fromCallback(cb => this.bus.i2cWrite(address, length, buffer, cb));
+  async i2cWrite(address: number, length: number, buffer: Buffer): Promise<{bytesWrite: number, buffer: Buffer}> {
+    const [bytesWrite, buf] = await fromCallback(cb => this.bus.i2cWrite(address, length, buffer, cb), {multiArgs: true});
+    return {bytesWrite, buffer: buf};
   }
 
   readByte(address: number, command: number): Promise<number> {
@@ -45,8 +47,9 @@ export class I2C {
     return fromCallback(cb => this.bus.readWord(address, command, cb));
   }
 
-  readI2cBlock(address: number, command: number, length: number, buffer: Buffer) {
-    return fromCallback(cb => this.bus.readI2cBlock(address, command, length, buffer, cb));
+  async readI2cBlock(address: number, command: number, length: number, buffer: Buffer): Promise<{bytesRead: number, buffer: Buffer}> {
+    const [bytesRead, buf] = await fromCallback(cb => this.bus.readI2cBlock(address, command, length, buffer, cb), {multiArgs: true});
+    return {bytesRead, buffer: buf}
   }
 
   receiveByte(address: number): Promise<number> {
@@ -69,7 +72,8 @@ export class I2C {
     return fromCallback(cb => this.bus.writeQuick(address, command, bit, cb));
   }
 
-  writeI2cBlock(address: number, command: number, length: number, buffer: Buffer) {
-    return fromCallback(cb => this.bus.writeI2cBlock(address, command, length, buffer, cb));
+  async writeI2cBlock(address: number, command: number, length: number, buffer: Buffer): Promise<{bytesWrite: number, buffer: Buffer}> {
+    const [bytesWrite, buf] = await fromCallback(cb => this.bus.writeI2cBlock(address, command, length, buffer, cb), {multiArgs: true});
+    return {bytesWrite, buffer: buf};
   }
 }
