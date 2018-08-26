@@ -1,5 +1,7 @@
 import {I2cBus, I2cBusFuncs, open} from "i2c-bus";
-import {fromCallback} from "./utils";
+import {bulkrw, fromCallback} from "./utils";
+
+export const RW_BLOCK_SIZE = 32;
 
 export class I2C {
 
@@ -48,8 +50,11 @@ export class I2C {
   }
 
   async readI2cBlock(address: number, command: number, length: number, buffer: Buffer): Promise<{bytesRead: number, buffer: Buffer}> {
-    const [bytesRead, buf] = await fromCallback(cb => this.bus.readI2cBlock(address, command, length, buffer, cb), {multiArgs: true});
-    return {bytesRead, buffer: buf}
+    const {count, buffer: buf} = await bulkrw(buffer, RW_BLOCK_SIZE, async (buf, len, pos) => {
+      return await fromCallback(cb => this.bus.readI2cBlock(address, command + pos, len, buf, cb));
+    });
+
+    return {bytesRead: count, buffer: buf};
   }
 
   receiveByte(address: number): Promise<number> {
@@ -73,7 +78,10 @@ export class I2C {
   }
 
   async writeI2cBlock(address: number, command: number, length: number, buffer: Buffer): Promise<{bytesWrite: number, buffer: Buffer}> {
-    const [bytesWrite, buf] = await fromCallback(cb => this.bus.writeI2cBlock(address, command, length, buffer, cb), {multiArgs: true});
-    return {bytesWrite, buffer: buf};
+    const {count, buffer: buf} = await bulkrw(buffer, RW_BLOCK_SIZE, async (buf, len, pos) => {
+      return await fromCallback(cb => this.bus.writeI2cBlock(address, command + pos, len, buf, cb));
+    });
+
+    return {bytesWrite: count, buffer: buf};
   }
 }
