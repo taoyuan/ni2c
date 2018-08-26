@@ -1,6 +1,6 @@
 {
   "name": "ni2c",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A promised i2c library based on i2c-bus for nodejs",
   "license": "MIT",
   "repository": "",
