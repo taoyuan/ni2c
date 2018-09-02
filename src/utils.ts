@@ -17,18 +17,30 @@ export function fromCallback(fn: (cb) => void, opts?: FromCallbackOptions): Prom
   });
 }
 
-export interface BulkResult {
-  count: number;
-  buffer: Buffer;
+export function sleep(ms: number = 1000): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export interface RW {
+const _tick = process.nextTick || setImmediate;
+export function tick(): Promise<void> {
+  return new Promise(_tick)
+}
+
+export function arrnum(num: number, bytes: number, buf?: Buffer | any[]) {
+  buf = buf || [];
+  for (let i = 0; i < bytes; i++) {
+    buf[i] = (num >> ((bytes - i - 1)) * 8) & 0xFF;
+  }
+  return buf;
+}
+
+export interface Iterator {
   (buf: Buffer, length: number, position: number): Promise<any>;
 }
 
-export async function bulkrw(buffer: Buffer, fn: RW): Promise<BulkResult>;
-export async function bulkrw(buffer: Buffer, chunkSize: number, fn: RW): Promise<BulkResult>;
-export async function bulkrw(buffer: Buffer, chunkSizeOrFn: number | RW, fn?: RW): Promise<BulkResult> {
+export async function bulkit(buffer: Buffer, fn: Iterator): Promise<{count: number, buffer: Buffer}>;
+export async function bulkit(buffer: Buffer, chunkSize: number, fn: Iterator): Promise<{count: number, buffer: Buffer}>;
+export async function bulkit(buffer: Buffer, chunkSizeOrFn: number | Iterator, fn?: Iterator): Promise<{count: number, buffer: Buffer}> {
   let chunkSize: number = buffer.length;
   if (typeof chunkSizeOrFn === 'function') {
     fn = chunkSizeOrFn;
@@ -37,7 +49,7 @@ export async function bulkrw(buffer: Buffer, chunkSizeOrFn: number | RW, fn?: RW
   }
 
   if (!fn) {
-    return {count: 0, buffer: ZERO_BUF};
+    return {count: 0, buffer: Buffer.from(ZERO_BUF)};
   }
 
   if (buffer.length <= chunkSize) {
@@ -48,9 +60,10 @@ export async function bulkrw(buffer: Buffer, chunkSizeOrFn: number | RW, fn?: RW
 
   while (i < buffer.length) {
     const buf = buffer.slice(i, i + chunkSize);
-    await fn(buf, chunkSize, i);
+    await fn(buf, buf.length, i);
     i += chunkSize;
   }
 
   return {count: buffer.length, buffer};
 }
+

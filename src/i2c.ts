@@ -1,87 +1,187 @@
-import {I2cBus, I2cBusFuncs, open} from "i2c-bus";
-import {bulkrw, fromCallback} from "./utils";
+import {EventEmitter} from "events";
+import {arrnum, bulkit, fromCallback, sleep, tick} from "./utils";
+import repl = require('repl');
 
-export const RW_BLOCK_SIZE = 32;
+const wire = require('bindings')('i2c.node');
+const debug = require('debug')('i2c');
 
-export class I2C {
+const READ_CHUNK_SIZE = 32;
+const WRITE_CHUNK_SIZE = 16;
 
-  static open(busnum: number = 1): Promise<I2C> {
-    return new Promise((resolve, reject) => {
-      const i2c = open(busnum, err => {
-        if (err) {
-          return reject(err);
-        }
-        resolve(new I2C(i2c));
+export class I2C extends EventEmitter {
+
+  history: any = [];
+
+  protected address: number;
+  protected cbytes: number;
+
+  protected opened: boolean;
+  protected opening: boolean;
+
+  constructor(address: number, opts?: { busnum?: number, cbytes?: number, autoOpen?: boolean, debug?: boolean }) {
+    super();
+    opts = opts || {};
+    const {cbytes = 1, busnum = 1, autoOpen = true, debug = false} = opts;
+
+    this.address = address;
+    this.cbytes = cbytes;
+
+    if (debug) {
+      repl.start({
+        prompt: 'i2c > '
+      }).context.wire = this;
+      process.stdin.emit('data', '');
+    }
+
+    this.on('data', data => this.history.push(data));
+    this.on('error', err => console.log(`Error: ${err}`));
+
+    if (autoOpen) {
+      this.open(busnum);
+    }
+  }
+
+  get isOpen() {
+    return this.opened;
+  }
+
+  setAddress(address: number) {
+    wire.setAddress(address);
+    this.address = address;
+  }
+
+  sureAddress() {
+    this.setAddress(this.address);
+  }
+
+  async scan(): Promise<number[]> {
+    const data = await fromCallback(cb => wire.scan(cb));
+    return data.filter(num => num > 0);
+  }
+
+  async open(busnum: number) {
+    if (this.opened) {
+      throw new Error('Port is already open');
+    }
+
+    if (this.opening) {
+      throw new Error('Port is opening');
+    }
+
+    this.opening = true;
+
+    const device = `/dev/i2c-${busnum}`;
+    debug('opening', `path: ${device}`);
+
+    await fromCallback(cb => wire.open(device, cb));
+    this.opening = false;
+    this.opened = true;
+  }
+
+  close() {
+    return wire.close();
+  }
+
+  async write(data: Buffer | any[] | string) {
+    this.sureAddress();
+
+    if (!Buffer.isBuffer(data)) {
+      data = Buffer.from(<any[]>data);
+    }
+
+    const answer = await fromCallback(cb => wire.write(data, cb));
+    await tick();
+    return answer;
+  }
+
+  async writeByte(byte: number) {
+    this.sureAddress();
+
+    const answer = await fromCallback(cb => wire.writeByte(byte, cb));
+    await tick();
+    return answer;
+  }
+
+  async writeBytes(cmd: number, data: Buffer | any[] | string) {
+    this.sureAddress();
+
+    if (!Buffer.isBuffer(data)) {
+      data = Buffer.from(<any[]>data);
+    }
+
+    await bulkit(data, WRITE_CHUNK_SIZE, async (buf: Buffer, length: number, position: number) => {
+      if (this.cbytes === 1) {
+        await fromCallback(cb => wire.writeBlock(cmd + position, buf, cb));
+      } else {
+        const b = Buffer.allocUnsafe(this.cbytes + length);
+        arrnum(cmd + position, this.cbytes, b);
+        buf.copy(b, this.cbytes);
+        await this.write(b);
+      }
+
+      await sleep(10);
+    });
+  }
+
+  async read(len: number) {
+    this.sureAddress();
+
+    const answer = await fromCallback(cb => wire.read(len, cb));
+    await tick();
+    return answer;
+  }
+
+  async readByte() {
+    this.sureAddress();
+
+    const answer = await fromCallback(cb => wire.readByte(cb));
+    await tick();
+    return answer;
+  }
+
+  async readByteData(position: number) {
+    this.sureAddress();
+
+    const answer = await fromCallback(cb => wire.readByteData(position, cb));
+    await tick();
+    return answer;
+  }
+
+  async readBytes(cmd: number, len: number) {
+    this.sureAddress();
+
+    if (this.cbytes === 1) {
+      const {buffer} = await bulkit(new Buffer(len), READ_CHUNK_SIZE, async (buf: Buffer, length: number, position: number) => {
+        const answer = <Buffer> await fromCallback(cb => wire.readBlock(cmd + position, length, null, cb));
+        answer.copy(buf);
+        await sleep(10);
+      });
+      return buffer;
+    } else {
+      const cmds = arrnum(cmd, this.cbytes);
+      await this.write(cmds);
+      return await this.read(len);
+    }
+  }
+
+  stream(cmd: number, length: number, delay: number = 100) {
+    if (this.cbytes > 1) {
+      throw new Error('stream is not supported cbytes more than 1. current cbytes is ' + this.cbytes);
+    }
+
+    this.sureAddress();
+
+    return wire.readBlock(cmd, length, delay, (err, data) => {
+      if (!err) {
+        return this.emit('error', err);
+      }
+      this.emit('data', {
+        data,
+        cmd,
+        length,
+        address: this.address,
+        timestamp: Date.now(),
       })
     });
-  }
-
-  protected constructor(protected bus: I2cBus) {
-  }
-
-  async close() {
-    return fromCallback(cb => this.bus.close(cb));
-  }
-
-  async i2cFuncs(): Promise<I2cBusFuncs> {
-    return fromCallback(cb => this.bus.i2cFuncs(cb));
-  }
-
-  async scan(): Promise<number> {
-    return fromCallback(cb => this.bus.scan(cb));
-  }
-
-  async i2cRead(address: number, length: number, buffer: Buffer): Promise<{bytesRead: number, buffer: Buffer}> {
-    const [bytesRead, buf] = await fromCallback(cb => this.bus.i2cRead(address, length, buffer, cb), {multiArgs: true});
-    return {bytesRead, buffer: buf};
-  }
-
-  async i2cWrite(address: number, length: number, buffer: Buffer): Promise<{bytesWrite: number, buffer: Buffer}> {
-    const [bytesWrite, buf] = await fromCallback(cb => this.bus.i2cWrite(address, length, buffer, cb), {multiArgs: true});
-    return {bytesWrite, buffer: buf};
-  }
-
-  readByte(address: number, command: number): Promise<number> {
-    return fromCallback(cb => this.bus.readByte(address, command, cb));
-  }
-
-  readWord(address: number, command: number): Promise<number> {
-    return fromCallback(cb => this.bus.readWord(address, command, cb));
-  }
-
-  async readI2cBlock(address: number, command: number, length: number, buffer: Buffer): Promise<{bytesRead: number, buffer: Buffer}> {
-    const {count, buffer: buf} = await bulkrw(buffer, RW_BLOCK_SIZE, async (buf, len, pos) => {
-      return await fromCallback(cb => this.bus.readI2cBlock(address, command + pos, len, buf, cb));
-    });
-
-    return {bytesRead: count, buffer: buf};
-  }
-
-  receiveByte(address: number): Promise<number> {
-    return fromCallback(cb => this.bus.receiveByte(address, cb));
-  }
-
-  sendByte(address: number, byte: number): Promise<void> {
-    return fromCallback(cb => this.bus.sendByte(address, byte, cb));
-  }
-
-  writeByte(address: number, command: number, byte: number) {
-    return fromCallback(cb => this.bus.writeByte(address, command, byte, cb));
-  }
-
-  writeWord(address: number, command: number, word: number) {
-    return fromCallback(cb => this.bus.writeWord(address, command, word, cb));
-  }
-
-  writeQuick(address: number, command: number, bit: number) {
-    return fromCallback(cb => this.bus.writeQuick(address, command, bit, cb));
-  }
-
-  async writeI2cBlock(address: number, command: number, length: number, buffer: Buffer): Promise<{bytesWrite: number, buffer: Buffer}> {
-    const {count, buffer: buf} = await bulkrw(buffer, RW_BLOCK_SIZE, async (buf, len, pos) => {
-      return await fromCallback(cb => this.bus.writeI2cBlock(address, command + pos, len, buf, cb));
-    });
-
-    return {bytesWrite: count, buffer: buf};
   }
 }

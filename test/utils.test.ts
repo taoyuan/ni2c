@@ -1,10 +1,17 @@
 import {assert} from "chai";
-import {bulkrw} from "../src/utils";
+import {arrnum, bulkit} from "../src/utils";
 
 describe('utils', () => {
-  describe('bulkrw', () => {
-    it('should bulkrw', async () => {
-      const {count, buffer} = await bulkrw(Buffer.alloc(10), 4, async (buf, len, pos) => {
+  describe('arrnum', () => {
+    it('should arrnum', async () => {
+      assert.deepEqual(arrnum(0x10, 2), [0x00, 0x10]);
+      assert.deepEqual(arrnum(0x1122, 2), [0x11, 0x22]);
+    });
+  });
+
+  describe('bulkit', () => {
+    it('should bulkit', async () => {
+      const {count, buffer} = await bulkit(Buffer.alloc(10), 4, async (buf, len, pos) => {
         for (let i = 0; i < len; i++) {
           buf[i] = pos + i;
         }
