@@ -1,6 +1,5 @@
 import {EventEmitter} from "events";
 import {arrnum, bulkit, fromCallback, sleep, tick} from "./utils";
-import repl = require('repl');
 
 const wire = require('bindings')('i2c.node');
 const debug = require('debug')('i2c');
@@ -18,20 +17,13 @@ export class I2C extends EventEmitter {
   protected opened: boolean;
   protected opening: boolean;
 
-  constructor(address: number, opts?: { busnum?: number, cbytes?: number, autoOpen?: boolean, debug?: boolean }) {
+  constructor(address: number, opts?: { busnum?: number, cbytes?: number, autoOpen?: boolean }) {
     super();
     opts = opts || {};
-    const {cbytes = 1, busnum = 1, autoOpen = true, debug = false} = opts;
+    const {cbytes = 1, busnum = 1, autoOpen = true} = opts;
 
     this.address = address;
     this.cbytes = cbytes;
-
-    if (debug) {
-      repl.start({
-        prompt: 'i2c > '
-      }).context.wire = this;
-      process.stdin.emit('data', '');
-    }
 
     this.on('data', data => this.history.push(data));
     this.on('error', err => console.log(`Error: ${err}`));
@@ -123,10 +115,10 @@ export class I2C extends EventEmitter {
     });
   }
 
-  async read(len: number) {
+  async read(buf: Buffer) {
     this.sureAddress();
 
-    const answer = await fromCallback(cb => wire.read(len, cb));
+    const answer = await fromCallback(cb => wire.read(buf, cb));
     await tick();
     return answer;
   }
@@ -147,20 +139,19 @@ export class I2C extends EventEmitter {
     return answer;
   }
 
-  async readBytes(cmd: number, len: number) {
+  async readBytes(cmd: number, buf: Buffer) {
     this.sureAddress();
 
     if (this.cbytes === 1) {
-      const {buffer} = await bulkit(new Buffer(len), READ_CHUNK_SIZE, async (buf: Buffer, length: number, position: number) => {
-        const answer = <Buffer> await fromCallback(cb => wire.readBlock(cmd + position, length, null, cb));
-        answer.copy(buf);
+      const {buffer} = await bulkit(buf, READ_CHUNK_SIZE, async (buf: Buffer, length: number, position: number) => {
+        await fromCallback(cb => wire.readBlock(cmd + position, buf, null, cb));
         await sleep(10);
       });
       return buffer;
     } else {
       const cmds = arrnum(cmd, this.cbytes);
       await this.write(cmds);
-      return await this.read(len);
+      return await this.read(buf);
     }
   }
 
